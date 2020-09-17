@@ -1,6 +1,6 @@
 package com.rshb.example.vertx;
 
-import com.rshb.example.vertx.verticles.MetrixBusPublisher;
+import com.rshb.example.vertx.verticles.MetricsBusPublisher;
 import io.vertx.core.AbstractVerticle;
 import io.vertx.core.Promise;
 import io.vertx.core.http.HttpHeaders;
@@ -14,14 +14,28 @@ import io.vertx.ext.web.handler.sockjs.SockJSBridgeOptions;
 import io.vertx.ext.web.handler.sockjs.SockJSHandler;
 import io.vertx.micrometer.PrometheusScrapingHandler;
 
-import java.util.stream.Collector;
-
 public class MainVerticle extends AbstractVerticle {
 
   @Override
   public void start(Promise<Void> startPromise) {
     WebClient webClient = createWebClient();
+    Router router = createRouter(webClient);
 
+    vertx.createHttpServer()
+      .requestHandler(router)
+      .listen(8888, http -> {
+        if (http.succeeded()) {
+          startPromise.complete();
+          System.out.println("HTTP server started on port 8888");
+        } else {
+          startPromise.fail(http.cause());
+        }
+      });
+
+    vertx.deployVerticle(MetricsBusPublisher.class.getName());
+  }
+
+  private Router createRouter(WebClient webClient) {
     Router router = Router.router(vertx);
     router.get("/hello").handler(rc -> {
       rc.response()
@@ -35,19 +49,7 @@ public class MainVerticle extends AbstractVerticle {
       .addOutboundPermitted(new PermittedOptions()
         .setAddress("metrics"));
     router.mountSubRouter("/eventbus", SockJSHandler.create(vertx).bridge(opts));
-
-    vertx.createHttpServer()
-      .requestHandler(router)
-      .listen(8888, http -> {
-        if (http.succeeded()) {
-          startPromise.complete();
-          System.out.println("HTTP server started on port 8888");
-        } else {
-          startPromise.fail(http.cause());
-        }
-      });
-
-    vertx.deployVerticle(MetrixBusPublisher.class.getName());
+    return router;
   }
 
   private WebClient createWebClient() {
@@ -72,14 +74,14 @@ public class MainVerticle extends AbstractVerticle {
     });
     restApi.get("/rshb_bonds/:bondId").handler(rc -> {
       String bondId = rc.request().getParam("bondId");
-        webClient
-          .get("/iss/securities/"+ bondId +".json")
-          .send(response -> {
-            rc.response()
-              .putHeader(HttpHeaders.CONTENT_TYPE, "application/json")
-              .end(processMoexBondDescriptionRequest(response.result().bodyAsJsonObject()));
-          });
-      });
+      webClient
+        .get("/iss/securities/" + bondId + ".json")
+        .send(response -> {
+          rc.response()
+            .putHeader(HttpHeaders.CONTENT_TYPE, "application/json")
+            .end(processMoexBondDescriptionRequest(response.result().bodyAsJsonObject()));
+        });
+    });
 
     return restApi;
   }
@@ -87,7 +89,7 @@ public class MainVerticle extends AbstractVerticle {
   private String processMoexBondDescriptionRequest(JsonObject moexJson) {
     return moexJson.getJsonObject("description").getJsonArray("data")
       .stream()
-      .map(arr -> (JsonArray)arr)
+      .map(arr -> (JsonArray) arr)
       .collect(
         JsonObject::new, (json, arr) -> json.put(arr.getString(1), arr.getString(2)), JsonObject::mergeIn
       )
