@@ -6,7 +6,7 @@ import io.vertx.micrometer.MetricsService;
 
 public class MetricsBusPublisher extends AbstractVerticle {
   @Override
-  public void start(Promise<Void> startPromise) throws Exception {
+  public void start(Promise<Void> startPromise) {
     MetricsService metricsService = MetricsService.create(vertx);
 
     vertx.setPeriodic(
@@ -14,7 +14,6 @@ public class MetricsBusPublisher extends AbstractVerticle {
       h ->
         vertx.eventBus().publish("metrics", metricsService.getMetricsSnapshot().encode())
     );
-    vertx.eventBus().consumer("metrics", h -> System.out.println(h.body()));
     startPromise.complete();
   }
 }
